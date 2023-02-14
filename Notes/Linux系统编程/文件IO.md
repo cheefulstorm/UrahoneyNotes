@@ -22,6 +22,8 @@
 
 * 1、4原型中，若参数flags中包含O_CREAT，会分配一个堆栈中的值作为新创建文件mode参数的值（随机性），为避免这个情况，应该使用2、3或5原型
 * 2、5原型中，若参数flag中不包含O_CREAT，参数mode即使设置也是无效的
+* **注意mode在传参时是8进制数，也就是说，在写代码的时候，需要在数字前加0表示八进制数，如0777**，漏掉0会有异常，这里的0和umask里面开头的0是一个意思，表示8进制
+* 虽然mode_t中包含文件类型信息，但是原型2、3、5不能通过传入指定的mode来指定创建文件的类型，无论传入的mode中对应位表示其他类型的文件，但是创建出来的都是regular file，不过可以指定特殊权限创建，即入参的有效8进制位是低4位，如07777
 * 创建新的文件的实际访问权限为mode & ~umask
 * openat函数和open函数区别在于：若参数pathname是绝对路径，则参数dirfd无效，两类函数等价；若是相对路径，open函数的当前目录.是运行程序所在目录，而openat函数的当前目录.是dirfd所指向的目录
 
@@ -96,7 +98,9 @@ C库的IO函数定义了自己的IO缓冲区（分为读和写），这个缓冲
 
 当进程打开一个新的文件时，系统会为这个文件分配的文件描述符数字尽可能小，假如某进程关闭了stdin文件，又打开了一个其他文件，该文件分配到的文件描述符就是STDIN_FILENO（0）
 
-不过可以通过dup函数来给打开的文件分配特定的文件描述符
+不过可以通过dup函数来给打开的文件分配特定的文件描述符。
+
+可以参考https://blog.csdn.net/wwwlyj123321/article/details/100298377查看具体信息
 
 
 
@@ -220,3 +224,104 @@ truncate可以实现文件的截断或扩展，若length比文件大小小则实
 原型1和2的区别就在于提供的文件源是由路径还是文件描述符来指明的
 
 若使用原型1，文件必须已经打开，两个原型文件必须均可写
+
+
+
+### stat
+
+```c
+   #include <sys/types.h>
+   #include <sys/stat.h>
+   #include <unistd.h>
+
+   int stat(const char *pathname, struct stat *statbuf);
+   int fstat(int fd, struct stat *statbuf);
+   int lstat(const char *pathname, struct stat *statbuf);
+```
+
+statbuf作为入参，用于获取文件的属性，返回0表示成功，返回-1表示异常错误
+
+你会发现lstat函数的原型和stat函数的原型相同，他们的区别在于：
+
+* stat函数的pathname参数中若是软链接文件，那么stat会找到该软链接文件所指的原文件（会传递查找），再去获取该文件的属性信息
+* lstat函数的pathname参数中若是软链接文件，会直接获取该软链接文件的属性信息。
+
+称stat函数会穿透符号链接，而lstat函数不会
+
+同理，如ls命令不会穿透符号链接，cat命令会穿透符号链接
+
+结构体stat的格式如下
+
+```c
+       struct stat {
+           dev_t     st_dev;         /* ID of device containing file */
+           ino_t     st_ino;         /* Inode number */
+           mode_t    st_mode;        /* File type and mode */
+           nlink_t   st_nlink;       /* Number of hard links */
+           uid_t     st_uid;         /* User ID of owner */
+           gid_t     st_gid;         /* Group ID of owner */
+           dev_t     st_rdev;        /* Device ID (if special file) */
+           off_t     st_size;        /* Total size, in bytes */
+           blksize_t st_blksize;     /* Block size for filesystem I/O */
+           blkcnt_t  st_blocks;      /* Number of 512B blocks allocated */
+
+           /* Since Linux 2.6, the kernel supports nanosecond
+              precision for the following timestamp fields.
+              For the details before Linux 2.6, see NOTES. */
+
+           struct timespec st_atim;  /* Time of last access */
+           struct timespec st_mtim;  /* Time of last modification */
+           struct timespec st_ctim;  /* Time of last status change */
+
+       #define st_atime st_atim.tv_sec      /* Backward compatibility */
+       #define st_mtime st_mtim.tv_sec
+       #define st_ctime st_ctim.tv_sec
+       };
+```
+
+更多细节参见APUE p.74 或 https://blog.csdn.net/m0_60663280/article/details/126884780
+
+值得一提的是mode_t，它是一个无符号32位整数，里面的信息包含了文件的类型、文件的权限（包括特殊权限），其中低16位是真正有效的，后面只讨论低16位。
+
+在低16位中，比特分布如下，ttttsssuuugggooo，其中u、g、o分别是user、group和other所属的文件权限，3位s是特殊权限位（3位从高到低分别表示SetUID、SetGID、Sticky BIT），4位t用于表示文件类型，可以表示16种文件类型，对应的掩码是宏S_IFMT，但是目前linux只有7种文件类型
+
+文件类型的相关宏使用如下：
+
+```c++
+	struct stat st;
+	stat(argv[1], &st);
+	if (S_ISREG(st.st_mode))       // is it a regular file?
+        cout << 1 << endl;         // 数字无意义
+	else if (S_ISDIR(st.st_mode))  // is it a directory?
+        cout << 2 << endl;
+	else if (S_ISCHR(st.st_mode))  // is it a character device?
+        cout << 3 << endl;
+	else if (S_ISBLK(st.st_mode))  // is it a block device?
+        cout << 4 << endl;
+	else if (S_ISFIFO(st.st_mode))  // is it a FIFO (named pipe)?
+        cout << 5 << endl;
+	else if (S_ISLNK(st.st_mode))   // is it a symbolic link?
+        cout << 6 << endl;
+	else if (S_ISSOCK(st.st_mode))  // is it a socket?
+        cout << 7 << endl;
+	else
+        cout << "error" << endl;
+```
+
+还有一种使用方法（使用S_IFMT宏）：
+
+```c
+    struct stat st;
+	stat(argv[1], &st);
+	switch (st.st_mode & S_IFMT) {
+        case S_IFBLK:  printf("block device\n");            break;
+        case S_IFCHR:  printf("character device\n");        break;
+        case S_IFDIR:  printf("directory\n");               break;
+        case S_IFIFO:  printf("FIFO/pipe\n");               break;
+        case S_IFLNK:  printf("symlink\n");                 break;
+        case S_IFREG:  printf("regular file\n");            break;
+        case S_IFSOCK: printf("socket\n");                  break;
+        default:       printf("unknown?\n");                break;
+    }
+```
+
