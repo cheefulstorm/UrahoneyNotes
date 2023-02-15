@@ -82,3 +82,22 @@ root@LAPTOP-URAHONEY:/home/urahoney/Study/cmake-build-debug# ll a
 
 自测：chmod命令将权限字符串如3777转换成8进制数进行处理，会检查长度是否在4以内，数字是否在0-7之间，若开头写了0并不表示8进制，而是特殊权限的控制，换言之，**chmod支持特殊权限控制**，详情见https://blog.csdn.net/mengmeng_921/article/details/128236146
 
+
+
+### readlink
+
+查询符号链接（软链接）文件实际存放的内容，而不是它指向的文件内容
+
+```shell
+root@LAPTOP-URAHONEY:/home/urahoney# ll test.soft
+lrwxrwxrwx 1 root root 19 Feb 15 16:51 test.soft -> /home/urahoney/test/
+root@LAPTOP-URAHONEY:/home/urahoney# readlink test.soft
+/home/urahoney/test
+root@LAPTOP-URAHONEY:/home/urahoney# cat test.soft
+cat: test.soft: Is a directory
+```
+
+从这个命令中也可以看出，软链接文件中实际存放的内容就是源文件的路径（可能是绝对路径，也可能是相对路径，取决于ln -s命令是如何执行的），故软链接文件的大小就是原文件的路径字符串的长度（上述的例子ls -l命令中目录最后面的/没有算在内，可能是ls -l命令自己加上去的，实际存放的内容应该参考readlink的内容）
+
+
+

@@ -26,6 +26,7 @@
 * 虽然mode_t中包含文件类型信息，但是原型2、3、5不能通过传入指定的mode来指定创建文件的类型，无论传入的mode中对应位表示其他类型的文件，但是创建出来的都是regular file，不过可以指定特殊权限创建，即入参的有效8进制位是低4位，如07777
 * 创建新的文件的实际访问权限为mode & ~umask
 * openat函数和open函数区别在于：若参数pathname是绝对路径，则参数dirfd无效，两类函数等价；若是相对路径，open函数的当前目录.是运行程序所在目录，而openat函数的当前目录.是dirfd所指向的目录
+* 后续提到的文件IO的函数可能带有at后缀版本，有的并没有，知道at后缀代表的意思就行，如果想使用先查询一下就行
 
 ##### 常见报错
 
@@ -209,7 +210,7 @@ my name is urahoney
 
 
 
-### truncate
+### truncate和ftruncate
 
 ```c
    #include <unistd.h>
@@ -227,7 +228,7 @@ truncate可以实现文件的截断或扩展，若length比文件大小小则实
 
 
 
-### stat
+### stat、fstat和lstat
 
 ```c
    #include <sys/types.h>
@@ -249,6 +250,8 @@ statbuf作为入参，用于获取文件的属性，返回0表示成功，返回
 称stat函数会穿透符号链接，而lstat函数不会
 
 同理，如ls命令不会穿透符号链接，cat命令会穿透符号链接
+
+stat与fstat的区别就在于提供的文件源是由路径还是文件描述符来指明的，使用fstat是文件需要打开
 
 结构体stat的格式如下
 
@@ -324,4 +327,189 @@ statbuf作为入参，用于获取文件的属性，返回0表示成功，返回
         default:       printf("unknown?\n");                break;
     }
 ```
+
+
+
+### chmod和fchmod
+
+```c
+   #include <sys/stat.h>
+
+   int chmod(const char *pathname, mode_t mode);  // 1
+   int fchmod(int fd, mode_t mode);  // 2
+```
+
+修改文件的访问权限，实际能够修改的部分为mode_t的低12位，即sssuuugggooo，八进制表示0xxxx（x:0-7）
+
+原型1和2的区别就在于提供的文件源是由路径还是文件描述符来指明的
+
+若使用原型2，文件必须已经打开，两个原型文件必须均可写
+
+成功访问0，异常错误返回-1
+
+
+
+### link和unlink
+
+```c
+   #include <unistd.h>
+
+   int link(const char *oldpath, const char *newpath);
+   int unlink(const char *pathname);
+```
+
+link函数效果和命令link的效果类似，用于创建硬链接，如
+
+```shell
+#link func.txt func.txt.hard
+```
+
+成功访问0，异常错误返回-1
+
+unlink函数用于删除一个文件在所在目录的对应目录项，使该文件对应的硬链接个数-1
+
+##### 需要注意
+
+* 若该文件对应的硬链接个数在-1之后为0，该文件即将被删除，所以说unlink具备删除文件的功能
+
+* 操作系统不会立即释放该文件所占的磁盘空间，它会根据内部的调度算法择机释放，一般要**等打开该文件的所有进程关闭该文件后**才准备释放删除
+* 若一个打开的文件调用了unlink后硬链接个数变为0，随后又对该文件进行一系列的IO操作如write等，这些操作并不会失败，因为该文件即将被删除但是还没有被删除，删除时机见上述，实际上，在这个情况下进行的write操作只改变了内核缓冲区的内容，并没有修改磁盘内容
+
+
+
+### Linux隐式回收
+
+进程运行结束时，会自动释放该进程申请的内核空间，刷新库缓冲区，并关闭所有打开的文件，执行进程退出函数（比较简单待补充）
+
+
+
+### readlink
+
+```c
+   #include <unistd.h>
+
+   ssize_t readlink(const char *pathname, char *buf, size_t bufsiz);
+```
+
+readlink函数和readlink命令的功能差不多，只不过获取的路径字符串通过buf返回而已，**不会自动在字符串最后补\0**，返回路径的长度，不包括\0，失败返回-1，也就是说，如果buf缓冲区不够大，不仅仅是内容截断这么简单，甚至会发生ub行为
+
+
+
+### rename
+
+```c
+   #include <stdio.h>
+
+   int rename(const char *oldpath, const char *newpath);
+```
+
+和mv命令功能类似，具备移动文件或重命名的功能，成功返回0，异常错误返回-1
+
+
+
+### getcwd
+
+```c
+   #include <unistd.h>
+   
+   char *getcwd(char *buf, size_t size);
+```
+
+和pwd命令功能类似，通过buf返回运行进程的当前工作目录，即该进程代码中涉及到的.目录，**会在路径字符串后面补\0，**如果size大小不够大，不会产生截断，函数执行失败，返回NULL，并且buf的内容不会发生改变，函数执行成功时返回buf指针地址
+
+
+
+### chdir
+
+```c
+   #include <unistd.h>
+
+   int chdir(const char *path);   // 1
+   int fchdir(int fd);  // 2
+```
+
+改变运行进程的当前工作目录，成功返回0，异常错误返回-1，原型1和2的区别在于一个是提供目录的路径，一个是提供目录文件的文件描述符，即需要注意，原型2中的参数fd的文件类型是目录文件
+
+
+
+### opendir和closedir
+
+```c
+   #include <sys/types.h>
+   #include <dirent.h>
+
+   DIR *opendir(const char *name);
+   DIR *fdopendir(int fd);
+   int closedir(DIR *dirp);
+```
+
+opendir、fopendir：根据目录路径名或打开的目录文件的文件描述符来打开目录流，返回DIR结构体的指针，类似FILE结构体一样，描述目录文件的信息，该指针用于后续对目录进行操作，若异常失败返回NULL
+
+closedir：通过DIR结构体的指针来关闭目录流（包括该目录文件），成功返回0，异常失败返回-1
+
+
+
+### readdir
+
+```c
+   #include <dirent.h>
+
+   struct dirent *readdir(DIR *dirp);
+```
+
+根据目录指针dirp获取当前目录流的一条目录项，返回目录项dirent指针，若已经达到目录流的结尾（即目录项已经全部读出）或者出错，会返回NULL指针，前者errno不变，后者会设置errno，**故当readdir返回NULL时，要检查errno是否异常**，不能简单判断出错还是目录已经读完
+
+dirent结构体的内容如下：
+
+```c
+       struct dirent {
+           ino_t          d_ino;       /* Inode number */
+           off_t          d_off;       /* Not an offset; see below */
+           unsigned short d_reclen;    /* Length of this record */
+           unsigned char  d_type;      /* Type of file; not supported
+                                          by all filesystem types */
+           char           d_name[256]; /* Null-terminated filename */
+       };
+```
+
+在编程时，一般只需要关注d_name字段，即文件名字段，看下面的demo：
+
+```c++
+int main(int argc, char *argv[]) {
+    DIR *dirp = opendir(argv[1]);
+    if (nullptr == dirp) {
+        perror("open dir failed");
+        exit(EXIT_FAILURE);
+    }
+    dirent *dentp = nullptr;
+    while (nullptr != (dentp = readdir(dirp))) {
+        cout << dentp->d_name << "\t";
+    }
+    if (0 != errno) {
+        perror("read dir error");
+        exit(EXIT_FAILURE);
+    }
+    cout << endl;
+    closedir(dirp);
+    return 0;
+}
+```
+
+d_type类型字段也可以关注，可以在不通过stat函数的前提下获取文件类型，对应宏如下：
+
+    DT_BLK      This is a block device.
+    
+    DT_CHR      This is a character device.
+    
+    DT_DIR      This is a directory.
+    
+    DT_FIFO     This is a named pipe (FIFO).
+    
+    DT_LNK      This is a symbolic link.
+    
+    DT_REG      This is a regular file.
+    
+    DT_SOCK     This is a UNIX domain socket.
+    
+    DT_UNKNOWN  The file type could not be determined.
 
