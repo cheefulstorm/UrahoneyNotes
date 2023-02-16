@@ -49,7 +49,7 @@
 
 ##### 需要注意
 
-* read的返回值表示读出的字节数，读普通文件时若返回值为0表示文件结束，若为-1表示存在异常（根据errno查询）；如果读取的文件设置了O_NONBLOCK，即非阻塞属性，若read返回-1，需要检查errno，若为EAGAIN或者为EWOULDBLOCK，应该需要再次尝试读取而不能直接判断为读取失败。一般来说，普通文件（包括目录文件）不涉及阻塞或非阻塞属性，设备文件、管道文件、网络文件默认是阻塞属性。
+* read的返回值表示读出的字节数，读普通文件时若返回值为0表示文件结束，若为-1表示存在异常（根据errno查询）；**如果读取的文件（设备文件、网络文件等）设置了O_NONBLOCK，即非阻塞属性，若read返回-1，需要检查errno，若为EAGAIN或者为EWOULDBLOCK，应该需要再次尝试读取而不能直接判断为读取失败**。一般来说，普通文件（包括目录文件）不涉及阻塞或非阻塞属性，设备文件、管道文件、网络文件默认是阻塞属性。
 * write的返回值表示写入的字节数，写普通文件时若返回值和入参count（需要写入的字节数）不相等表示有异常错误
 
 
@@ -89,9 +89,11 @@ C库的IO函数定义了自己的IO缓冲区（分为读和写），这个缓冲
 
 文件描述符fd是一个int类型的数字，用于指代进程打开的某个文件。
 
-每个进程在自己的内核空间中有一个进程控制块PCB，c语言中是通过结构体实现的，该结构体中有一个指向文件描述符表的指针，文件描述符表是一个位于内核空间中的数组，数组元素是指向存放该进程打开的文件信息的结构体的指针，这个结构体就和C库的IO函数中FILE结构体类似。而文件描述符就是文件描述符表作为数组的下标。
+每个进程在自己的内核空间中有一个进程控制块PCB，c语言中是通过结构体task_struct实现的，该结构体中有一个指向结构体files_struct的指针，该结构体中存放了指向文件描述符表的指针fd_array，文件描述符表是一个位于内核空间中的数组，数组元素是指向存放该进程打开的文件信息的结构体file_struct的指针，这个结构体就和C库的IO函数中FILE结构体类似。而文件描述符就是文件描述符表作为数组的下标。
 
-系统通过PCB中的文件描述符表的指针作为基地址，根据文件描述符作为数组偏移，找到对应指针打开文件的信息的。
+task_struct（PCB） -> files_struct（进程打开文件表） ->file_struct（打开文件）（简记）
+
+系统通过fd_array的值作为基地址，根据文件描述符作为数组偏移，找到对应指针打开文件的信息的。
 
 文件描述符表的前三个指针默认指向stdin、stdout和stderr，对应的文件描述符为0、1、2，用宏表示为STDIN_FILENO、STDOUT_FILENO、STDERR_FILENO。(进程默认打开这三个文件，对应文件系统下/dev/tty终端设备)
 
@@ -99,22 +101,22 @@ C库的IO函数定义了自己的IO缓冲区（分为读和写），这个缓冲
 
 当进程打开一个新的文件时，系统会为这个文件分配的文件描述符数字尽可能小，假如某进程关闭了stdin文件，又打开了一个其他文件，该文件分配到的文件描述符就是STDIN_FILENO（0）
 
-不过可以通过dup函数来给打开的文件分配特定的文件描述符。
+不过可以通过dup2函数来给打开的文件分配特定的文件描述符。
 
 可以参考https://blog.csdn.net/wwwlyj123321/article/details/100298377查看具体信息
 
 
 
-### fcntl
+### fcntl（设置文件的打开属性）
 
        #include <unistd.h>
        #include <fcntl.h>
     
        int fcntl(int fd, int cmd, ... /* arg */ );
 
-每个打开文件的属性是通过int类型的数据来表示的，该int类型的某些二进制位代表了对应的属性
+每个文件的打开属性（就是open函数的flags参数）是通过int类型的数据来表示的，该int类型的某些二进制位代表了对应的属性
 
-cmd参数只有两种选择，F_GETFL和F_SETFL，前者表示获取文件属性，后者表示设置文件属性
+cmd参数包括F_GETFL和F_SETFL，前者表示获取文件属性，后者表示设置文件属性
 
 若cmd = F_GETFL，函数原型应该为
 
@@ -151,6 +153,8 @@ int main() {
 
 有了这个函数就不需要再重新打开文件时设置文件属性了
 
+这个函数很复杂，cmd不同时功能也不同，后续慢慢补充
+
 
 
 ### lseek
@@ -172,7 +176,7 @@ int main() {
 
 ##### 需要注意
 
-* 文件的读/写位置是绑定统一的，也就是说，若文件已经从开头读了5B，若要开始写的话，则从第6个字节处开始写（很重要！）
+* **文件的读/写位置是绑定统一的**，也就是说，若文件已经从开头读了5B，若要开始写的话，则从第6个字节处开始写（很重要！）
 
 * 通过lseek可以通过返回值来获取文件大小（offset = 0 whence = SEEK_END，不需要+1）或者当前读写位置（offset = 0 whence = SEEK_CUR），读写位置从0开始计数，SEEK_END的基地址是文件最后一个字节的下一个字节
 * 通过lseek可以扩展文件大小，即将读写位置移动到SEEK_END之后并进行IO操作写入数据（只移动不写入是不能扩展文件大小的），如下：
@@ -224,7 +228,7 @@ truncate可以实现文件的截断或扩展，若length比文件大小小则实
 
 原型1和2的区别就在于提供的文件源是由路径还是文件描述符来指明的
 
-若使用原型1，文件必须已经打开，两个原型文件必须均可写
+使用时，两个原型文件必须均可写，使用原型1可以不用先调用open打开文件，原型2需要
 
 
 
@@ -459,6 +463,8 @@ closedir：通过DIR结构体的指针来关闭目录流（包括该目录文件
 
 根据目录指针dirp获取当前目录流的一条目录项，返回目录项dirent指针，若已经达到目录流的结尾（即目录项已经全部读出）或者出错，会返回NULL指针，前者errno不变，后者会设置errno，**故当readdir返回NULL时，要检查errno是否异常**，不能简单判断出错还是目录已经读完
 
+**readdir获取的目录项的顺序是不透明的**
+
 dirent结构体的内容如下：
 
 ```c
@@ -472,7 +478,7 @@ dirent结构体的内容如下：
        };
 ```
 
-在编程时，一般只需要关注d_name字段，即文件名字段，看下面的demo：
+在编程时，一般只需要关注d_name字段（除了d_ino和d_name其他字段文件系统不一定支持），即文件名字段，看下面的demo：
 
 ```c++
 int main(int argc, char *argv[]) {
@@ -513,3 +519,145 @@ d_type类型字段也可以关注，可以在不通过stat函数的前提下获�
     
     DT_UNKNOWN  The file type could not be determined.
 
+若文件系统不支持该字段，会返回DT_UNKNOWN
+
+##### 需要注意
+
+* 虽然glibc的头文件中指明了d_name数组的大小为256，但是编程实现时不要依赖该大小，POSIX.1标准并未规定d_name数组的大小，应该使用strlen来获取d_name字符串的实际大小，也不能将d_name数组作为左值来修改文件名，有的文件系统实现的头文件中是用d_name[0]可变长数组来实现的
+* 不要通过sizeof(struct dirent)来获取目录项的大小，d_reclen字段描述的也并非是目录项的大小，这两者之间也是无关的，**总之，不要依赖着两个值来进行编程**
+
+### rewinddir
+
+```c
+   #include <sys/types.h>
+   #include <dirent.h>
+
+   void rewinddir(DIR *dirp);
+```
+
+重置目录流dirp到开始的地方，这样可以重新从头读取对应目录的目录项
+
+
+
+### telldir和seekdir
+
+```c
+   #include <dirent.h>
+
+   long telldir(DIR *dirp);
+   void seekdir(DIR *dirp, long loc);
+```
+
+tellldir返回目录流dirp的当前读写位置，若出现异常错误返回-1
+
+seekdir设置目录流dirp的当前读写位置为loc
+
+##### 需要注意
+
+telldir函数的返回值和当前调用readdir获取的目录项dirent中的d_off字段值相同（新的POSIX标准将off_t改为了long类型，但是本机上off_t和long是相同的），同时注意，**不要将该值当做目录流中目录项的偏移量**，以前老版本的glibc实现是这样的，现代版本的glibc是通过哈希表或树结构实现目录，只需要将其当做一个不透明的值就行
+
+
+
+### scandir
+
+```c
+   #include <dirent.h>
+
+   int scandir(const char *dirp, struct dirent ***namelist,
+          int (*filter)(const struct dirent *),
+          int (*compar)(const struct dirent **, const struct dirent **));
+```
+
+https://blog.csdn.net/weixin_44498318/article/details/116431854
+
+待补充
+
+
+
+### dup和dup2
+
+\# dup是duplicate的缩写
+
+```c
+   #include <unistd.h>
+
+   int dup(int oldfd);
+   int dup2(int oldfd, int newfd);
+```
+
+dup：为旧的文件描述符oldfd产生一个新的文件描述符副本（这两个文件描述符指向相同的文件）并返回其值，若异常错误返回-1
+
+dup2：为旧的文件描述符oldfd产生一个新的文件描述符副本newfd（这两个文件描述符指向相同的文件）并返回newfd，异常错误返回-1
+
+##### 需要注意
+
+* dup产生的新的文件描述符副本遵循尽可能小的原则分配未使用的值
+* 在使用dup2时，若newfd对应的文件已经被打开（即该数字已经被其他打开文件占用），**会先关闭该文件**释放newfd的值
+* 在使用dup2时，若oldfd是无效文件描述符，函数调用失败返回-1，若newfd对应的文件已经被打开则不会被关闭
+* 在使用dup2时，若oldfd是有效文件描述符且oldfd == newfd，函数什么都不做返回newfd
+* dup和dup2本质是将文件描述符表fd_array[oldfd]中的指针拷贝给fd_array[newfd]，从而使多个fd指向同一个进程打开的文件
+* 如果两个文件描述符fd指向同一个文件，通过其中一个fd关闭对应的文件，并不会直接关闭该文件，只会使被关闭的fd无效，而另一个fd还可以操作该文件，原理类似硬链接，**直到该进程没有fd指向该文件时该文件才被进程彻底关闭**
+
+下面有一个重定向标准输出stdout的demo：
+
+```c++
+int main(int argc, char *argv[]) {
+	int fd = open(argv[1], O_WRONLY | O_CREAT | O_TRUNC, 0755);
+    if (-1 == fd) {
+        perror("open error");
+        exit(EXIT_FAILURE);
+    }
+    int newFd = dup2(fd, STDOUT_FILENO);   // 关闭stdout并使STDOUT_FILENO指向argv[1]文件
+    if (STDOUT_FILENO != newFd) {
+        perror("dup2 error");
+        exit(EXIT_FAILURE);
+    }
+    cout << argv[2] << endl;   // 标准输出已经被重定向
+    close(fd);
+    close(newFd);
+    exit(EXIT_SUCCESS);
+}
+```
+
+测试程序如下：
+
+```shell
+root@LAPTOP-URAHONEY:/home/urahoney/Study/cmake-build-debug# ./main test.txt hello
+root@LAPTOP-URAHONEY:/home/urahoney/Study/cmake-build-debug# cat test.txt 
+test.txt
+root@LAPTOP-URAHONEY:/home/urahoney/Study/cmake-build-debug#
+```
+
+**dup2对于重定位的用法简单记忆为：将newfd重定向到oldfd**
+
+
+
+### fcntl（产生文件描述符的副本）
+
+```c
+   #include <unistd.h>
+   #include <fcntl.h>
+
+   int fcntl(int fd, int cmd, ... /* arg */ );
+```
+
+该功能和dup类函数功能类似，cmd参数是F_DUPFD，若不适用arg参数，功能和dup类似，若使用arg参数，功能和dup2类似，异常错误返回-1，成功返回新的文件描述符副本newfd的值
+
+```c
+	newfd = fcntl(fd, F_DUPFD);  // 1
+	newfd = fcntl(fd, F_DUPFD, 0);  // 2
+	newfd = dup(fd);
+```
+
+上面三种写法等价（原型2可以看下面的解释）
+
+```c
+	newfd = fcntl(fd, F_DUPFD, newfd);  // 3
+	newfd = dup2(fd, newfd);  // 4
+```
+
+上面两种写法功能基本相同，但是存在区别在于：
+
+* 原型3中若newfd已经被进程打开的文件占用，不会关闭该文件释放newfd的值，会重新指定一个**未被使用的并且大于newfd的且尽可能小的值**作为新的文件描述符的值，换言之，**新的文件描述符的值一定是大于等于newfd的**，这个原则和open、dup以及原型1的文件描述符分配原则有些不同
+
+* 原型4中则会关闭占用newfd的文件释放newfd的值，见dup2的用法
