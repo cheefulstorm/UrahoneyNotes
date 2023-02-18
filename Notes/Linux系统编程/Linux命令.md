@@ -109,3 +109,18 @@ cat: test.soft: Is a directory
 # env
 ```
 
+
+
+### kill
+
+```shell
+# kill -n <pid>
+```
+
+给进程pid发送信号，信号值为n
+
+```shell
+# kill -l
+```
+
+查看系统支持的所有信号

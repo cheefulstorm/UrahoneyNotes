@@ -466,6 +466,19 @@ closedir：通过DIR结构体的指针来关闭目录流（包括该目录文件
 
 
 
+### mkdir
+
+```c
+   #include <sys/stat.h>
+   #include <sys/types.h>
+
+   int mkdir(const char *pathname, mode_t mode);
+```
+
+创建一个目录，参数以及返回值的含义和creat函数基本相同
+
+
+
 ### readdir
 
 ```c
