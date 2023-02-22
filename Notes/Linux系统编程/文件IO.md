@@ -687,3 +687,17 @@ root@LAPTOP-URAHONEY:/home/urahoney/Study/cmake-build-debug#
 * 原型3中若newfd已经被进程打开的文件占用，不会关闭该文件释放newfd的值，会重新指定一个**未被使用的并且大于newfd的且尽可能小的值**作为新的文件描述符的值，换言之，**新的文件描述符的值一定是大于等于newfd的**，这个原则和open、dup以及原型1的文件描述符分配原则有些不同
 
 * 原型4中则会关闭占用newfd的文件释放newfd的值，见dup2的用法
+
+
+
+### pathconf和fpathconf
+
+```c
+   #include <unistd.h>
+
+   long fpathconf(int fd, int name);  // 1
+   long pathconf(const char *path, int name);  // 2
+```
+
+查看文件的配置参数值，分别提供文件描述符或者文件路径作为参数1，另一个参数name表示配置参数类型，取值参考APUE p.35或man pathconf，返回对应文件的配置参数值
+
