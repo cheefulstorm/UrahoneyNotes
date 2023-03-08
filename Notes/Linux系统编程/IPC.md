@@ -240,3 +240,410 @@ https://blog.csdn.net/weixin_43743711/article/details/106723529
 
    int shmget(key_t key, size_t size, int shmflg);
 ```
+
+
+
+### 信号
+
+信号在我们的生活中随处可见， 如：古代战争中摔杯为号；现代战争中的信号弹；体育比赛中使用的信号枪......
+
+他们都有共性：**1. 简单 2. 不能携带大量信息 3. 满足某个特设条件才发送**
+
+信号是信息的载体，Linux/UNIX 环境下，古老、经典的通信方式， 现下依然是主要的通信手段。Unix早期版本就提供了信号机制，但不可靠，信号可能丢失。Berkeley 和 AT&T都对信号模型做了更改，增加了可靠信号机制。但彼此不兼容。POSIX.1对可靠信号例程进行了标准化
+
+信号是软件层面上的“中断”，一旦信号产生，程序必须立即停止运行去处理信号，处理完信号再去继续执行后续指令，**而信号的产生和处理都是由内核完成的**
+
+其中产生信号的方式（事件）有：
+
+* 按键产生，如：Ctrl+c、Ctrl+z、Ctrl+\
+
+* 系统调用产生，如：kill、raise、abort
+
+* 软件条件产生，如：定时器alarm
+
+* 硬件异常产生，如：非法访问内存(段错误)、除0(浮点数例外)、内存对齐出错(总线错误)
+
+* 命令产生，如：kill命令
+
+信号的状态有： 
+
+* 递达：内核产生的信号递送到进程并且**内核完成信号处理**的状态
+
+* 未决：产生和递达之间的状态，信号产生后但是**还未被内核处理**，主要由于阻塞(屏蔽)导致该状态
+
+信号的处理方式有: 
+
+* 执行默认动作 
+* 忽略(丢弃)，注意，信号即使被忽略也属于递达，忽略和屏蔽是不同的
+* 捕捉(调用户处理函数)
+
+Linux系统内核定义的PCB中，还包含了进程的信号屏蔽字以及未决信号集
+
+* 信号屏蔽字（屏蔽信号集）：将某些信号加入集合，对他们设置屏蔽，对应的位翻转为1，当屏蔽x信号后，再收到该信号，该信号的处理将推后(解除屏蔽后)，若解除屏蔽后，该位翻转回为0
+
+* 未决信号集：
+
+  * 信号产生，未决信号集中描述该信号的位立刻**翻转为1，表信号处于未决状态**。当信号被处理对应位翻转回为0。这一时刻往往非常短暂。 
+
+  * 信号产生后由于某些原因(主要是阻塞)不能抵达。这类信号的集合称之为未决信号集。在屏蔽解除前，信号一直处于未决状态。 
+
+> 可以把信号屏蔽字和未决信号集当成位图来理解，即每种信号都有一个二进制位来表示，0和1分别表示该信号是否被屏蔽或者是否处于未决状态
+>
+> 但是实际的内核实现中，一个信号仅仅用一位来实现是不够的
+
+kill -l 可以查看系统支持的所有信号列表，其中1-31是常规信号，包含默认处理动作，34-64是实时信号，没有默认处理动作，很少在应用开发中使用，一般在底层硬件驱动开发中可能会使用
+
+**信号4要素：1. 编号 2. 名称 3. 事件 4. 默认处理动作**
+
+其中事件表示产生信号的方式
+
+所有的信号4要素信息可以通过man 7 signal 获取
+
+共有5种默认处理动作
+
+* Term：终止该进程运行
+* Core：终止该进程运行并核心转储
+* Stop：暂停该进程运行
+* Cont：恢复已暂停的进程继续运行
+* Ign：忽略该信号
+
+有些特殊的信号需要注意：
+
+* **信号SIGKILL(9)和SIGSTOP(19)的信号处理方式只能是执行默认动作 （Term）**，不可以屏蔽（即使可以修改信号屏蔽字）、忽略、捕捉该信号或者修改信号处理方式（防止恶意程序给自己留后门，不让内核终止该进程）
+* **信号SIGUSER1(10)和SIGUSER2(12)的事件由用户来决定**，即由用户来控制何时发送该信号，默认动作是Term，若用户需要修改信号处理方式，需要自行捕捉
+
+
+
+### kill
+
+```c
+   #include <sys/types.h>
+   #include <signal.h>
+
+   int kill(pid_t pid, int sig);
+```
+
+功能和kill命令相同，向进程或者进程组发送信号sig，若发送成功，返回0，异常错误返回-1
+
+其中参数pid的含义如下：
+
+| pid  |                       含义                       |
+| :--: | :----------------------------------------------: |
+| > 0  |                接收信号的进程pid                 |
+|  0   |       调用该函数的进程所在进程组的所有进程       |
+|  -1  | 调用进程有权限发送信号的所有进程（除了init进程） |
+| < -1 |               进程组-pid的所有进程               |
+
+##### 需要注意
+
+* 若sig为0，不发送任何信号，但是仍然会进行存在性和权限检查，因此，可以通过kill函数用于检查调用进程有权限发送信号的进程或检查组是否存在
+* kill命令也可以使用负数pid给进程组发信号
+* 有权限发送的含义是，super用户(root)可以发送信号给任意用户，普通用户是不能向系统用户发送信号的。 kill -9 (root用户的pid) 是不可以的。同样，普通用户也不能向其他普通用户发送信号，终止其进程。 只能向自己创建的进程发送信号。普通用户基本规则是：发送者实际或有效用户ID == 接收者实际或有效用户ID
+
+
+
+### raise
+
+```c
+   #include <signal.h>
+
+   int raise(int sig);
+```
+
+发送信号sig给**调用进程或线程**，发送成功返回0，异常错误返回非0值，在单线程程序中等价于
+
+```c
+	kill(getpid(), sig);
+```
+
+在多线程程序中等价于
+
+```
+	pthread_kill(pthread_self(), sig);
+```
+
+
+
+### abort
+
+```c
+   #include <stdlib.h>
+
+   void abort(void);
+```
+
+调用进程先解除对SIGABRT信号的屏蔽，然后向调用进程发送**SIGABRT**信号，除非进程捕获该信号并在信号处理函数中不返回，否则进程执行默认动作Core
+
+
+
+### alarm
+
+```c
+   #include <unistd.h>
+
+   unsigned int alarm(unsigned int seconds);
+```
+
+设置定时器的剩余秒数为seconds，定时器到时会给调用进程发送SIGALRM信号，**若在调用时该进程已经设置了定时器，则返回旧的定时器的剩余秒数，若未设置定时器，则返回0**，SIGALRM信号的默认处理动作是Term
+
+##### 需要注意
+
+* 每个进程有三种定时器（见后面），alarm函数只能控制其中的一种
+* 若设置定时器时该进程已经设置了定时器，会直接覆盖该定时器的剩余秒数
+* 若入参seconds为0且该进程已经设置了定时器，取消该定时器（等同于将定时器的剩余秒数设置为0）
+* 进程处于何种状态（阻塞、就绪等）不影响定时处理，**故alarm的定时是真实时间(real time)**
+
+
+
+### getitimer和settimer
+
+```c
+    #include <sys/time.h>
+
+    struct timeval {
+        time_t      tv_sec;         /* seconds */
+        suseconds_t tv_usec;        /* microseconds */
+    };
+
+    struct itimerval {
+        struct timeval it_interval; /* Interval for periodic timer */
+        struct timeval it_value;    /* Time until next expiration */
+    };
+
+    int getitimer(int which, struct itimerval *curr_value);
+    int setitimer(int which, const struct itimerval *new_value, struct itimerval *old_value);
+```
+
+getitimer：根据类型which获取间隔定时器的值，**通过出参curr_value返回**，若调用成功返回0，异常错误返回-1
+
+setitimer：根据类型which设置间隔定时器的值，**通过入参new_value设置新的定时器的值，通过出参old_value返回旧的定时器的值**，如果不关注旧的定时器的值，old_value可以为NULL，若调用成功返回0，异常错误返回-1
+
+类型which的取值如下：
+
+* ITIMER_REAL：真实时间间隔定时器，时间计数**按照真实时间来不断减少**，计数为0时内核给调用进程发送**SIGALRM**信号，选择这个参数和alarm函数是等价的
+* ITIMER_VIRTUAL：虚拟空间时间间隔定时器，只有当该进程**处于用户态且在运行态**时，时间计数才会不断减少，计数为0时内核给调用进程发送**SIGVTALRM**信号
+* ITIMER_PROF：运行时间间隔定时器，只有当该进程**处于运行态**时，时间计数才会不断减少，计数为0时内核给调用进程发送**SIGPROF**信号
+
+选择不同的which也就是意味着操作不同的定时器，**一个进程同时拥有三种上述的定时器**
+
+结构体itimerval中的参数含义：
+
+* it_interval：间隔定时时间，当定时器到时内核发送信号后，如果进程捕获该信号使其继续运行，系统会根据该参数重新设置定时器的定时时间it_value，如果该参数设置为0，就只能实现一次定时，此时和alarm函数一样，如果需要重新定时，就只能在信号捕获函数中重新调用函数
+* it_value：定时时间，随着时间流逝而减少，当该值为0时，内核发送信号，如果该参数设置为0，就可以关闭定时器（此时设置it_interval是无效的）
+
+下面的两种写法都是真实时间一次性定时5s，可以参考
+
+```c
+    itimerval new_itimer{{0, 0}, {5, 0}};
+    setitimer(ITIMER_REAL, &new_itimer, nullptr);
+```
+
+```c
+	alarm(5);
+```
+
+##### 需要注意
+
+* **一个进程中不要同时使用alarm函数和setitimer函数操纵ITIMER_REAL**
+
+
+
+### 信号集操作函数
+
+```c
+   #include <signal.h>
+
+   int sigemptyset(sigset_t *set);
+   int sigfillset(sigset_t *set);
+   int sigaddset(sigset_t *set, int signum);
+   int sigdelset(sigset_t *set, int signum);
+   int sigismember(const sigset_t *set, int signum);
+```
+
+sigset_t是表示信号集的数据类型，在Linux中，内核只允许用户来读写信号屏蔽字（屏蔽信号集）或者读取未决信号集，故上述函数都是用于辅助操作信号屏蔽字或者未决信号集的
+
+* sigemptyset：将出参set中包含的所有信号全部清空，成功返回0，异常错误返回-1
+* sigfillset：将出参set添加所有信号，成功返回0，异常错误返回-1
+* sigaddset：将出参set添加信号signum，成功返回0，异常错误返回-1
+* sigaddset：从出参set中移除信号signum，成功返回0，异常错误返回-1
+* sigismemeber：检查入参set中是否包含信号signum，包含返回1，不包含返回0，异常错误返回-1
+
+##### 需要注意
+
+可以把信号集当成位图来理解，但是内部实现中信号包含的信息不仅仅是布尔信息，还包含其他信息
+
+
+
+### sigprocmask
+
+```c
+   #include <signal.h>
+
+   int sigprocmask(int how, const sigset_t *set, sigset_t *oldset);
+```
+
+修改调用进程的信号屏蔽字，实现特定信号的屏蔽或者解除屏蔽，通过入参set设置新的信号屏蔽字，通过出参oldset返回旧的信号屏蔽字，如果只希望获取信号屏蔽字而不修改，set可以为NULL，如果不关注旧的屏蔽字，oldset可以为NULL，若修改成功返回0 ，异常错误返回-1
+
+参数how用于设置修改信号屏蔽字的方式，取值如下：
+
+* SIG_BLOCK：表示屏蔽操作，将**入参set中的包含的信号视为需要屏蔽的信号**，将这些信号加入信号屏蔽字
+* SIG_UNBLOCK：表示解除屏蔽操作，将**入参set中的包含的信号视为需要解除屏蔽的信号**，将这些信号移出信号屏蔽字
+* SIG_SETMASK：表示设置掩码操作，将**入参set就作为新的信号屏蔽字**
+
+> 对已屏蔽的信号再次屏蔽、或者已解除屏蔽的信号再次解除屏蔽是允许的
+>
+> 需要注意：how参数只影响入参set的含义，不影响出参oldset的含义，oldset表示修改前的信号屏蔽字
+>
+> 建议使用SIG_BLOCK或者SIG_UNBLOCK来操作屏蔽信号字，SIG_SETMASK在使用前需要根据情况分析影响
+
+
+
+### sigpending
+
+```c
+   #include <signal.h>
+
+   int sigpending(sigset_t *set);
+```
+
+通过出参set返回调用进程的未决信号集，调用成功返回0，异常错误返回-1
+
+
+
+### signal
+
+```c
+   #include <signal.h>
+
+   typedef void (*sighandler_t)(int);
+
+   sighandler_t signal(int signum, sighandler_t handler);
+```
+
+注册一个信号捕捉函数，入参signum设置需要捕捉的信号，入参handler设置信号的捕捉处理函数，调用成功返回信号signum上一次注册的信号捕捉函数的地址，若信号signum未被注册过，则返回NULL，**异常错误返回SIG_ERR，本质是(sighandler_t)-1**
+
+捕捉处理函数的入参只有一个参数int，表示被捕捉信号的数字，无返回值
+
+如果希望将已注册信号处理函数的信号的信号处理方式恢复成执行默认动作或者忽略，可以将handler设置为宏**SIG_DFL**或者**SIG_IGN**，注意，这两个宏是sighandler_t类型
+
+##### 需要注意
+
+* 当进程正在执行A信号的处理函数时，A信号自动被屏蔽（除非使用sigaction函数并设置SA_NODEFER参数），如果来了多个A信号，解除屏蔽后也只能处理第一个A信号，其他的A信号都会被丢弃不进行处理
+* 常规信号（1-31）不支持排队，也就是说，当进程同时接收到多个A信号时，内核只能处理第一个A信号，其他的A信号都会被丢弃不进行处理
+* 实时信号（34-64）支持排队，有队列机制
+
+
+
+### sigaction
+
+```c
+   #include <signal.h>
+
+   int sigaction(int signum, const struct sigaction *act, struct sigaction *oldact);
+```
+
+修改信号的处理方式，本函数相比于signal函数提供了更多的功能
+
+入参signum设置需要修改的信号，入参act设置信号新的处理方式，出参oldact返回信号旧的处理方式，如果只希望获取信号处理方式而不修改，act可以为NULL，如果不关注信号旧的处理方式，oldact可以为NULL，调用成功返回0，异常错误返回-1
+
+其中描述信号处理方式的结构体sigaction定义如下：
+
+```c
+    struct sigaction {
+        void     (*sa_handler)(int);    // 信号的捕获处理函数
+        void     (*sa_sigaction)(int, siginfo_t *, void *);  // 信号用于IPC需要携带数据时使用
+        sigset_t   sa_mask;  // 信号屏蔽字，其有效期限仅限于sa_handler函数执行期间，这段时间内会覆盖进程的信号屏蔽字
+        int        sa_flags;  // 设置信号属性参数，默认取0
+        void     (*sa_restorer)(void);   // 已废弃
+    };
+```
+
+部分没有细讲的字段待后续补充
+
+> 注意，修改sa_mask字段时，请通过地址来修改，而不要赋值修改，sigset_t本质是一个结构体，里面存放了一个数组
+
+
+
+### 内核实现信号捕捉过程
+
+![image-20230308190457827](../../assets/image-20230308190457827.png)
+
+> 注意步骤1，也就是说，只有进程进入内核态，才有机会检查进程接收到的信号（检查未决信号集），如果进程在一段时间内停留在用户态，信号并不会立即得到处理，不过这个时间不会很长，进程即使正常运行，也会因为时间片到了而触发时钟中断
+
+
+
+### SIGCHLD信号
+
+当**子进程的状态发生改变**时，内核会给父进程发送SIGCHLD信号
+
+需要注意，子进程的状态发生改变的定义和waitpid函数中提到的是相同的，包括：
+
+* 子进程终止运行时
+* 未挂起的子进程接收到SIGSTOP或者SIGTSTP信号而挂起停止运行时
+
+* 已挂起的子进程接收到SIGCONT信号而恢复运行时
+
+SIGCHLD信号的默认处理方式是忽略，可以自己捕获该信号定义信号处理方式
+
+> SIGSTOP和SIGTSTP的功能是相同的，都是使未挂起的挂起停止运行，不同的是：
+>
+> SIGSTOP不可屏蔽，不可进行捕获处理，只能通过命令接口或者系统调用触发
+>
+> SIGTSTP可以屏蔽或者捕获处理，除了可以通过命令接口或者系统调用触发，还可以通过ctrl + z按键触发
+
+利用SIGCHLD信号，可以定义信号捕捉函数，并调用wait/waitpid函数回收子进程
+
+* 如果有多个子进程，应该循环调用wait/waitpid，防止多个子进程同时结束运行时多余的SIGCHLD信号被丢弃
+* 为了防止在注册SIGCHLD信号捕捉函数前，子进程终止运行导致SIGCHLD被忽略，应该在父进程创建子进程前屏蔽SIGCHLD信号，然后创建子进程，再完成SIGCHLD信号注册后，最后解除信号屏蔽，这样就可以杜绝这种问题出现
+
+demo如下：
+
+```c++
+#include <iostream>
+#include <unistd.h>
+#include <sys/wait.h>
+
+using namespace std;
+
+void sys_err(const char *s) {
+    perror(s);
+    exit(EXIT_FAILURE);
+}
+
+// SIGCHLD信号处理函数
+void exec(int signo) {
+    int wstatus{};
+    while (0 < waitpid(-1, &wstatus, 0)) {  // 循环回收子进程
+        if (WIFEXITED(wstatus)) {
+            cout << "child " << WEXITSTATUS(wstatus) << " exit" << endl; // 读取子进程返回的值
+        } else {
+            cout << "child exit error" << endl;
+        }
+    }
+}
+
+int main(int argc, char *argv[]) {
+    int index = 0;
+    sigset_t sset{};
+    sigemptyset(&sset);
+    sigaddset(&sset, SIGCHLD);
+    sigprocmask(SIG_BLOCK, &sset, nullptr); // 屏蔽SIGCHLD信号
+    while (index < 5) {
+        pid_t pid = fork(); // 创建子进程
+        if (0 > pid) {
+            sys_err("fork error");
+        } else if (0 == pid) {
+            break;
+        }
+        ++index;
+    }
+    if (5 == index) {  // 父进程处理
+        signal(SIGCHLD, exec);  // 注册SIGCHLD信号处理函数
+        sigprocmask(SIG_UNBLOCK, &sset, nullptr); // 解除SIGCHLD屏蔽
+        while (true);
+    } else {
+        cout << "child " << index << endl;
+        return index; // 子进程返回index
+    }
+}
+```
