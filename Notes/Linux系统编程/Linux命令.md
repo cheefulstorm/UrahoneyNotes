@@ -156,19 +156,19 @@ cat: test.soft: Is a directory
 # ./start.sh &
 ```
 
-在命令最后加上&表示使命令在后台运行（如果不加表示在当前终端的前台运行）
+在命令最后加上&表示使job在后台运行（如果不加表示在当前终端的前台运行）
 
 ```shell
 # jobs
 ```
 
-查看当前终端下的所有后台命令，加-l参数可以查看进程PID
+查看当前终端下的所有后台job，加-l参数可以查看详细信息
 
 ```shell
 # fg
 ```
 
-将当前终端下的一个后台命令调到前台运行，若要指定命令调到前台运行，则
+将当前终端下的一个后台job调到前台运行，若要指定job调到前台运行，则
 
 ```shell
 # fg %<job_id>
@@ -180,17 +180,17 @@ job_id使用jobs命令查看
 # bg
 ```
 
-将当前终端下的一个暂停的后台命令继续在后台执行，若要指定命令调到前台运行，则
+将当前终端下的一个暂停的后台job继续在后台执行，若要指定job调到前台运行，则
 
 ```shell
 # bg %<job_id>
 ```
 
-**ctrl + c会向当前终端的前台进程发送SIGINT信号，终止该进程执行**
+**ctrl + c会向当前终端的前台job发送SIGINT信号，终止该job中所有进程执行**
 
-**ctrl + z会向当前终端的前台进程发送SIGTSTP信号，暂停该进程执行，该进程被移到后台**
+**ctrl + z会向当前终端的前台job发送SIGTSTP信号，暂停该job中所有进程执行，该job被移到后台**
 
-**ctrl + \会向当前终端的前台进程发送SIGQUIT信号，终止该进程执行并核心转储**
+**ctrl + \会向当前终端的前台job发送SIGQUIT信号，终止该job中所有进程并核心转储**
 
 > 将正在运行的前台运行的命令移到后台运行的方式为：
 >
@@ -218,4 +218,34 @@ sys		0m0.169s
 real表示程序实际运行时间，user表示程序在用户态的运行时间，sys表示程序在内核态的运行时间，real = user + sys + 其他时间
 
 其他时间包括就绪态等待CPU的时间、阻塞态等待资源的时间等
+
+
+
+### ps命令进程状态
+
+取自man
+
+```shell
+PROCESS STATE CODES
+       Here are the different values that the s, stat and state output specifiers (header "STAT" or "S") will display to describe the state of a process:
+
+               D    uninterruptible sleep (usually IO)
+               I    Idle kernel thread
+               R    running or runnable (on run queue)
+               S    interruptible sleep (waiting for an event to complete)
+               T    stopped by job control signal
+               t    stopped by debugger during the tracing
+               W    paging (not valid since the 2.6.xx kernel)
+               X    dead (should never be seen)
+               Z    defunct ("zombie") process, terminated but not reaped by its parent
+
+       For BSD formats and when the stat keyword is used, additional characters may be displayed:
+
+               <    high-priority (not nice to other users)
+               N    low-priority (nice to other users)
+               L    has pages locked into memory (for real-time and custom IO)
+               s    is a session leader
+               l    is multi-threaded (using CLONE_THREAD, like NPTL pthreads do)
+               +    is in the foreground process group
+```
 
