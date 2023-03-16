@@ -395,6 +395,18 @@ kill -l 可以查看系统支持的所有信号列表，其中1-31是常规信�
 
 
 
+### pause
+
+```c
+   #include <unistd.h>
+
+   int pause(void);
+```
+
+使线程挂起停止运行（sleep），直到线程接收到信号而终止运行或者调用信号处理函数，调用成功返回0，异常错误返回-1
+
+
+
 ### getitimer和settimer
 
 ```c
