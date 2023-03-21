@@ -249,3 +249,12 @@ PROCESS STATE CODES
                +    is in the foreground process group
 ```
 
+
+
+### nc
+
+```shell
+# nc <IP> <PORT>
+```
+
+像对应IP和PORT的服务端发起TCP连接，可以充当客户端使用
