@@ -257,4 +257,14 @@ PROCESS STATE CODES
 # nc <IP> <PORT>
 ```
 
-像对应IP和PORT的服务端发起TCP连接，可以充当客户端使用
+向对应IP和PORT的服务端发起TCP连接，可以充当客户端使用，一般可以用于测试服务端功能使用
+
+
+
+### netstat
+
+```
+# netstat -apn
+```
+
+查看网络TCP/UDP连接状态
