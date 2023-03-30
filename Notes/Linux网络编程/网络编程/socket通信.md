@@ -155,7 +155,7 @@ sockaddr_in结构体的格式如下
 
 
 
-### socket通信流程框架
+### socketTCP通信流程框架
 
 ![img](../../assets/clip_image002.jpg)
 
@@ -465,4 +465,113 @@ sockaddr_in结构体的格式如下
 > **如果使用shutdown，只有关闭写端SHUT_WR才可以触发握手，无论是客户端的第一次握手，还是服务端的第三次握手，关闭读端只能限制无法从对端读取数据**
 >
 > **实际上，也只有主动关闭的一方调用shutdown关闭写端SHUT_WR，才可以实现真正意义上的半关闭状态，调用close并不能实现数据单向流通**
+
+
+
+### socketUDP通信流程框架
+
+<img src="../../assets/下载.png" alt="下载" style="zoom:67%;" />
+
+
+
+### recvfrom
+
+```c
+   #include <sys/types.h>
+   #include <sys/socket.h>
+
+   ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
+                    struct sockaddr *src_addr, socklen_t *addrlen);
+```
+
+从socket套接字sockfd中接收对端的数据，返回接收数据的字节数（UDP允许发送字节数为0的报文），异常错误返回-1
+
+参数解释如下：
+
+* sockfd：socket套接字的文件描述符
+* buf：用于接收数据的缓冲区首地址
+* len：用于接收数据的缓冲区长度
+* flags：选项，默认传0
+* src_addr：出参，返回对端的套接字地址信息，**如果不关心对端信息可以传入NULL**
+* addrlen：作入参使用时，传入sizeof(sockaddr)，作出参使用时，返回src_addr的实际长度，**如果不关心对端信息可以传入NULL**
+
+
+
+### sendto
+
+```c
+   #include <sys/types.h>
+   #include <sys/socket.h>
+
+   ssize_t sendto(int sockfd, const void *buf, size_t len, int flags,
+                  const struct sockaddr *dest_addr, socklen_t addrlen);
+```
+
+向socket套接字sockfd中发送数据到对端，返回实际发送数据的字节数（UDP允许发送字节数为0的报文），异常错误返回-1
+
+参数解释如下：
+
+* sockfd：socket套接字的文件描述符
+* buf：用于发送数据的缓冲区首地址
+* len：发送数据的字节数
+* flags：选项，默认传0
+* dest_addr：入参，设置对端的套接字地址信息
+* addrlen：入参，dest_addr的实际长度
+
+> 客户端若socket套接字未绑定地址信息就开始调用sendto，内核会选择本机的IP地址和系统分配的端口号作为地址信息，称为隐式绑定
+>
+> 需要注意，**即使在UDP通信中，服务端也不能依赖隐式绑定，必须调用bind**，客户端不需要调用bind
+
+UDP通信的demo如下：
+
+* 服务端
+
+```c++
+int main() {
+    int sockFd = usocket(AF_INET, SOCK_DGRAM, 0); // 创建UDP套接字
+    sockaddr_in svrAddr{};
+    svrAddr.sin_family = AF_INET;
+    svrAddr.sin_port = htons(1080);
+    svrAddr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    ubind(sockFd, (const sockaddr *)&svrAddr, sizeof(sockaddr_in));  // 服务端必须绑定地址信息
+
+    sockaddr_in cltAddr{};
+    socklen_t cltAddrLen = sizeof(sockaddr_in);
+    char buf[1024]{};
+    while (true) {
+        ssize_t count = urecvfrom(sockFd, buf, sizeof(buf), 0, (sockaddr *)&cltAddr, &cltAddrLen);
+        if (count > 0) {
+            for (int i = 0; i < count; ++i) {
+                buf[i] = toupper(buf[i]);
+            }
+            usendto(sockFd, buf, count, 0, (sockaddr *)&cltAddr, sizeof(sockaddr_in));
+            memset(buf, 0, sizeof(buf));
+        }
+    }
+}
+```
+
+* 客户端
+
+```c++
+int main() {
+    int sockFd = usocket(AF_INET, SOCK_DGRAM, 0);  // 创建UDP套接字
+    sockaddr_in svrAddr{};
+    svrAddr.sin_family = AF_INET;
+    svrAddr.sin_port = htons(1080);
+    svrAddr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    // 客户端不需要绑定地址信息
+    char buf[1024]{};
+    while (cin.getline(buf, sizeof(buf))) {
+        size_t count = strlen(buf);
+        if (0 == count) {
+            continue;
+        }
+        usendto(sockFd, buf, count, 0, (const sockaddr *)&svrAddr, sizeof(sockaddr_in));
+        urecvfrom(sockFd, buf, sizeof(buf), 0, nullptr, nullptr);
+        cout << buf << endl;
+        memset(buf, 0, sizeof(buf));
+    }
+}
+```
 
